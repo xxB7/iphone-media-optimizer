@@ -258,7 +258,23 @@ def main():
         output_dir = console.input("[bold yellow]💾 أدخل مسار مجلد الحفظ (Output Folder): [/bold yellow]").strip().strip('"').strip("'")
 
     if not os.path.isdir(input_dir):
-        console.print(f"[bold red]Error: Input directory does not exist: {input_dir}[/bold red]")
+        if any(w in input_dir for w in ("This PC", "Apple iPhone", "Internal Storage", "Computer")):
+            console.print(Panel(
+                "[bold yellow]⚠️ تنبيه تقني بخصوص أجهزة الآيفون على ويندوز:[/bold yellow]\n\n"
+                "نظام ويندوز يربط الآيفون عبر بروتوكول افتراضي اسمه [cyan]MTP (Media Transfer Protocol)[/cyan]، وليس كحرف قرص حقيقي (مثل C:\\ أو E:\\).\n"
+                "لذلك، لا تستطيع أنظمة الملفات وأدوات الضغط (FFmpeg / Python) القراءة المباشرة من مسار وهمي مثل:\n"
+                f"[red]{input_dir}[/red]\n\n"
+                "[bold green]✅ الحل البسيط والمعتمد:[/bold green]\n"
+                "1. افتح الآيفون في متصفح ملفات ويندوز (Windows Explorer).\n"
+                "2. انسخ مجلد [bold white]DCIM[/bold white] والصقه داخل القرص [bold cyan]E:\\[/bold cyan] (لديك 677 جيجابايت فارغة ما شاء الله).\n"
+                "   مثلاً سمه: [bold green]E:\\DCIM_Raw[/bold green]\n"
+                "3. أعد تشغيل البرنامج وضع المسار: [bold green]E:\\DCIM_Raw[/bold green]\n"
+                "4. بعد انتهاء البرنامج من الضغط في مجلد [bold green]E:\\iphone 8[/bold green]، يمكنك مسح المجلد المؤقت بأمان.",
+                title="ℹ️ إرشاد حول مسارات أجهزة MTP",
+                border_style="yellow"
+            ))
+        else:
+            console.print(f"[bold red]❌ Error: المجلد المدخل غير موجود أو المسار غير صحيح: {input_dir}[/bold red]")
         sys.exit(1)
 
     # Initialize Logger
