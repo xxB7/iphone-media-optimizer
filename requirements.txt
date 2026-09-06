@@ -1,0 +1,7 @@
+# iPhone Studio Media Optimizer Requirements
+# Python 3.10+
+Pillow>=10.0.0
+pillow-heif>=0.16.0
+rich>=13.0.0
+tqdm>=4.66.0
+pyyaml>=6.0.0
