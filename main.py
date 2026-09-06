@@ -240,7 +240,7 @@ def main():
         f"[bold]GPU:[/bold] {profile.gpu_name} (VRAM: {profile.vram_total_mb} MB) | NVENC HEVC: {'[green]Available[/green]' if profile.has_nvenc_hevc else '[red]Missing[/red]'}\n"
         f"[bold]CPU Threads:[/bold] {profile.cpu_count} | [bold]FFmpeg:[/bold] {profile.ffmpeg_path or 'Not Found'}\n"
         f"[bold]ExifTool:[/bold] {profile.exiftool_path or 'Not Found'}",
-        title="🖥️ تقرير فحص العتاد والبرمجيات (Hardware Profile)",
+        title="🖥️ Hardware & Software Profile",
         border_style="cyan"
     ))
 
@@ -256,10 +256,10 @@ def main():
 
     if detected_iphone:
         console.print(Panel(
-            f"[bold green]📱 تم اكتشاف آيفون متصل بالكمبيوتر عبر USB بنجاح![/bold green]\n"
-            f"[bold]الجهاز:[/bold] {detected_iphone['device_name']}\n"
-            f"[bold]المحتويات:[/bold] {detected_iphone['total_files']} ملف داخل {detected_iphone['folders_count']} مجلد في DCIM",
-            title="✨ اتصال آيفون مباشر متاح (Direct iPhone USB Detected)",
+            f"[bold green]📱 Connected iPhone USB Device Detected![/bold green]\n"
+            f"[bold]Device:[/bold] {detected_iphone['device_name']}\n"
+            f"[bold]Library:[/bold] {detected_iphone['total_files']} files across {detected_iphone['folders_count']} DCIM folders",
+            title="✨ Direct iPhone USB Connection Ready",
             border_style="green"
         ))
 
@@ -269,27 +269,27 @@ def main():
 
     if not input_dir:
         if detected_iphone:
-            console.print("\n[bold cyan]اختر طريقة الإدخال:[/bold cyan]")
-            console.print("[bold green][1][/bold green] [bold white]القراءة والسحب المباشر تلقائياً من الآيفون المتصل[/bold white] (موصى به - دون أي نسخ يدوي)")
-            console.print("[bold yellow][2][/bold yellow] [white]إدخال مسار مجلد محلي على الكمبيوتر يدوياً[/white]")
-            choice = console.input("\n[bold yellow]أدخل خيارك [1 أو 2] (الافتراضي 1): [/bold yellow]").strip()
+            console.print("\n[bold cyan]Select Input Source:[/bold cyan]")
+            console.print("[bold green][1][/bold green] [bold white]Direct USB Auto-Sync from connected iPhone[/bold white] (Recommended - Zero manual copying)")
+            console.print("[bold yellow][2][/bold yellow] [white]Enter local PC folder path manually[/white]")
+            choice = console.input("\n[bold yellow]Enter choice [1 or 2] (Default 1): [/bold yellow]").strip()
             if choice in ("", "1", "iphone", "apple"):
                 is_direct_iphone_mode = True
             else:
-                input_dir = console.input("\n[bold yellow]📂 أدخل مسار مجلد الآيفون (Input DCIM Folder): [/bold yellow]").strip().strip('"').strip("'")
+                input_dir = console.input("\n[bold yellow]📂 Enter input folder path (e.g. E:\\MyFolder): [/bold yellow]").strip().strip('"').strip("'")
         else:
-            input_dir = console.input("\n[bold yellow]📂 أدخل مسار مجلد الآيفون (Input DCIM Folder): [/bold yellow]").strip().strip('"').strip("'")
+            input_dir = console.input("\n[bold yellow]📂 Enter input folder path: [/bold yellow]").strip().strip('"').strip("'")
 
     if any(w in (input_dir or "") for w in ("This PC", "Apple iPhone", "Internal Storage", "Computer")):
         is_direct_iphone_mode = True
 
     if not output_dir:
-        output_dir = console.input("[bold yellow]💾 أدخل مسار مجلد الحفظ (Output Folder): [/bold yellow]").strip().strip('"').strip("'")
+        output_dir = console.input("[bold yellow]💾 Enter output folder path (e.g. E:\\iphone 8): [/bold yellow]").strip().strip('"').strip("'")
 
     # If direct iPhone mode is selected, extract files automatically from MTP
     if is_direct_iphone_mode:
         temp_staging_dir = os.path.join(output_dir, "_temp_raw_dcim")
-        console.print(f"\n[bold green]📥 جاري سحب واستخراج ملفات الاستديو مباشرة من الآيفون عبر USB...[/bold green]")
+        console.print(f"\n[bold green]📥 Extracting DCIM library directly from iPhone via USB...[/bold green]")
         
         with Progress(
             SpinnerColumn(),
@@ -299,22 +299,22 @@ def main():
             console=console
         ) as mtp_prog:
             total_folders = detected_iphone['folders_count'] if detected_iphone else 19
-            task = mtp_prog.add_task("[cyan]سحب المجلدات من الآيفون...", total=total_folders)
+            task = mtp_prog.add_task("[cyan]Extracting iPhone DCIM folders...", total=total_folders)
             
             def on_folder_done(fname):
                 mtp_prog.advance(task)
-                mtp_prog.update(task, description=f"[cyan]تم استخراج المجلد: {fname}")
+                mtp_prog.update(task, description=f"[cyan]Extracted folder: {fname}")
 
             success = MTPReader.extract_iphone_dcim(temp_staging_dir, progress_callback=on_folder_done)
             if not success or not os.path.isdir(temp_staging_dir):
-                console.print("[bold red]❌ تعذر استخراج الملفات من الآيفون. يرجى التأكد من إلغاء قفل الشاشة والضغط على 'الوثوق بهذا الكمبيوتر' على شاشة الآيفون.[/bold red]")
+                console.print("[bold red]❌ Failed to read from iPhone. Please unlock your iPhone screen and tap 'Trust This Computer'.[/bold red]")
                 sys.exit(1)
         
         input_dir = temp_staging_dir
-        console.print("[bold green]✅ تم سحب الملفات بنجاح! جاري البدء في الضغط فائق السرعة والميتاداتا...[/bold green]\n")
+        console.print("[bold green]✅ Media extracted successfully! Starting GPU NVENC compression...[/bold green]\n")
 
     elif not os.path.isdir(input_dir):
-        console.print(f"[bold red]❌ Error: المجلد المدخل غير موجود أو المسار غير صحيح: {input_dir}[/bold red]")
+        console.print(f"[bold red]❌ Error: Input directory does not exist or is invalid: {input_dir}[/bold red]")
         sys.exit(1)
 
     # Initialize Logger
@@ -365,18 +365,18 @@ def main():
         return
 
     if args.dry_run:
-        console.print("\n[bold cyan]🔍 وضع التجربة (Dry Run Mode): تم العثور على الملفات التالية دون إجراء تعديل:[/bold cyan]")
-        console.print(f"- الصور: {len(scan_result.images)}")
-        console.print(f"- الفيديوهات: {len(scan_result.videos)} (منها {scan_result.live_photo_pairs_count} صور حية Live Photos)")
-        console.print(f"- ملفات التعديل المساندة: {len(scan_result.sidecars)}")
-        console.print(f"- إجمالي الحجم: {format_bytes(scan_result.total_bytes)}")
+        console.print("\n[bold cyan]🔍 Dry Run Mode: Found files without modifying anything:[/bold cyan]")
+        console.print(f"- Photos: {len(scan_result.images)}")
+        console.print(f"- Videos: {len(scan_result.videos)} (including {scan_result.live_photo_pairs_count} Live Photo pairs)")
+        console.print(f"- Sidecars: {len(scan_result.sidecars)}")
+        console.print(f"- Total Size: {format_bytes(scan_result.total_bytes)}")
         return
 
     # Execution plan
     gpu_workers = max(1, config["hardware"]["gpu_video_workers"])
     cpu_workers = max(2, config["hardware"]["cpu_photo_workers"])
 
-    console.print(f"\n[bold green]🚀 بدء المعالجة:[/bold green] {len(scan_result.items)} ملف | خيوط كرت الشاشة للفيديو: {gpu_workers} | خيوط المعالج للصور: {cpu_workers}")
+    console.print(f"\n[bold green]🚀 Processing Started:[/bold green] {len(scan_result.items)} files | GPU Video Workers: {gpu_workers} | CPU Photo Workers: {cpu_workers}")
 
     start_exec_time = time.time()
     reporter = ExecutionReporter(output_dir)
@@ -392,9 +392,9 @@ def main():
     )
 
     with progress:
-        overall_task = progress.add_task("[white]إجمالي التقدم (Overall Progress)", total=len(scan_result.items))
-        video_task = progress.add_task("[magenta]ضغط الفيديوهات (NVENC GPU)", total=len(scan_result.videos)) if scan_result.videos else None
-        photo_task = progress.add_task("[cyan]ضغط الصور (Pillow-Heif CPU)", total=len(scan_result.images)) if scan_result.images else None
+        overall_task = progress.add_task("[white]Overall Progress", total=len(scan_result.items))
+        video_task = progress.add_task("[magenta]Compressing Videos (NVENC GPU)", total=len(scan_result.videos)) if scan_result.videos else None
+        photo_task = progress.add_task("[cyan]Compressing Photos (Pillow-Heif CPU)", total=len(scan_result.images)) if scan_result.images else None
 
         # 1. Process Videos with bounded GPU concurrency
         if scan_result.videos:
@@ -452,11 +452,11 @@ def main():
     if temp_staging_dir and os.path.isdir(temp_staging_dir):
         try:
             shutil.rmtree(temp_staging_dir)
-            console.print("[dim green]🧹 تم تنظيف مجلد العمل المؤقت بنجاح لتوفير مساحة التخزين.[/dim green]")
+            console.print("[dim green]🧹 Temporary staging cache cleaned up successfully.[/dim green]")
         except Exception as e:
             logger.debug(f"Could not remove temp staging dir: {e}")
 
-    console.print(f"[bold green]✨ اكتملت العملية بنجاح! تم حفظ التقرير والملفات في:[/bold green] {output_dir}\n")
+    console.print(f"[bold green]✨ All tasks completed successfully! Output saved to:[/bold green] {output_dir}\n")
 
 
 if __name__ == "__main__":
