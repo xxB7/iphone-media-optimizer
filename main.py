@@ -30,6 +30,7 @@ from rich.progress import (
 from core.db import StateDatabase
 from core.image_engine import ImageEngine
 from core.metadata_engine import MetadataEngine
+from core.mtp_reader import MTPReader
 from core.reporter import ExecutionReporter, format_bytes
 from core.scanner import DirectoryScanner, MediaItem, ScanResult
 from core.video_engine import VideoEngine
@@ -248,33 +249,72 @@ def main():
             console.print(f"[bold red]❌ {msg}[/bold red]")
         sys.exit(1)
 
+    # Check for connected iPhone via MTP
+    detected_iphone = MTPReader.detect_iphone()
+    is_direct_iphone_mode = False
+    temp_staging_dir = None
+
+    if detected_iphone:
+        console.print(Panel(
+            f"[bold green]📱 تم اكتشاف آيفون متصل بالكمبيوتر عبر USB بنجاح![/bold green]\n"
+            f"[bold]الجهاز:[/bold] {detected_iphone['device_name']}\n"
+            f"[bold]المحتويات:[/bold] {detected_iphone['total_files']} ملف داخل {detected_iphone['folders_count']} مجلد في DCIM",
+            title="✨ اتصال آيفون مباشر متاح (Direct iPhone USB Detected)",
+            border_style="green"
+        ))
+
     # Ask for inputs interactively if not provided via CLI
     input_dir = args.input
     output_dir = args.output
 
     if not input_dir:
-        input_dir = console.input("\n[bold yellow]📂 أدخل مسار مجلد الآيفون (Input DCIM Folder): [/bold yellow]").strip().strip('"').strip("'")
+        if detected_iphone:
+            console.print("\n[bold cyan]اختر طريقة الإدخال:[/bold cyan]")
+            console.print("[bold green][1][/bold green] [bold white]القراءة والسحب المباشر تلقائياً من الآيفون المتصل[/bold white] (موصى به - دون أي نسخ يدوي)")
+            console.print("[bold yellow][2][/bold yellow] [white]إدخال مسار مجلد محلي على الكمبيوتر يدوياً[/white]")
+            choice = console.input("\n[bold yellow]أدخل خيارك [1 أو 2] (الافتراضي 1): [/bold yellow]").strip()
+            if choice in ("", "1", "iphone", "apple"):
+                is_direct_iphone_mode = True
+            else:
+                input_dir = console.input("\n[bold yellow]📂 أدخل مسار مجلد الآيفون (Input DCIM Folder): [/bold yellow]").strip().strip('"').strip("'")
+        else:
+            input_dir = console.input("\n[bold yellow]📂 أدخل مسار مجلد الآيفون (Input DCIM Folder): [/bold yellow]").strip().strip('"').strip("'")
+
+    if any(w in (input_dir or "") for w in ("This PC", "Apple iPhone", "Internal Storage", "Computer")):
+        is_direct_iphone_mode = True
+
     if not output_dir:
         output_dir = console.input("[bold yellow]💾 أدخل مسار مجلد الحفظ (Output Folder): [/bold yellow]").strip().strip('"').strip("'")
 
-    if not os.path.isdir(input_dir):
-        if any(w in input_dir for w in ("This PC", "Apple iPhone", "Internal Storage", "Computer")):
-            console.print(Panel(
-                "[bold yellow]⚠️ تنبيه تقني بخصوص أجهزة الآيفون على ويندوز:[/bold yellow]\n\n"
-                "نظام ويندوز يربط الآيفون عبر بروتوكول افتراضي اسمه [cyan]MTP (Media Transfer Protocol)[/cyan]، وليس كحرف قرص حقيقي (مثل C:\\ أو E:\\).\n"
-                "لذلك، لا تستطيع أنظمة الملفات وأدوات الضغط (FFmpeg / Python) القراءة المباشرة من مسار وهمي مثل:\n"
-                f"[red]{input_dir}[/red]\n\n"
-                "[bold green]✅ الحل البسيط والمعتمد:[/bold green]\n"
-                "1. افتح الآيفون في متصفح ملفات ويندوز (Windows Explorer).\n"
-                "2. انسخ مجلد [bold white]DCIM[/bold white] والصقه داخل القرص [bold cyan]E:\\[/bold cyan] (لديك 677 جيجابايت فارغة ما شاء الله).\n"
-                "   مثلاً سمه: [bold green]E:\\DCIM_Raw[/bold green]\n"
-                "3. أعد تشغيل البرنامج وضع المسار: [bold green]E:\\DCIM_Raw[/bold green]\n"
-                "4. بعد انتهاء البرنامج من الضغط في مجلد [bold green]E:\\iphone 8[/bold green]، يمكنك مسح المجلد المؤقت بأمان.",
-                title="ℹ️ إرشاد حول مسارات أجهزة MTP",
-                border_style="yellow"
-            ))
-        else:
-            console.print(f"[bold red]❌ Error: المجلد المدخل غير موجود أو المسار غير صحيح: {input_dir}[/bold red]")
+    # If direct iPhone mode is selected, extract files automatically from MTP
+    if is_direct_iphone_mode:
+        temp_staging_dir = os.path.join(output_dir, "_temp_raw_dcim")
+        console.print(f"\n[bold green]📥 جاري سحب واستخراج ملفات الاستديو مباشرة من الآيفون عبر USB...[/bold green]")
+        
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[bold blue]{task.description}"),
+            BarColumn(),
+            TaskProgressColumn(),
+            console=console
+        ) as mtp_prog:
+            total_folders = detected_iphone['folders_count'] if detected_iphone else 19
+            task = mtp_prog.add_task("[cyan]سحب المجلدات من الآيفون...", total=total_folders)
+            
+            def on_folder_done(fname):
+                mtp_prog.advance(task)
+                mtp_prog.update(task, description=f"[cyan]تم استخراج المجلد: {fname}")
+
+            success = MTPReader.extract_iphone_dcim(temp_staging_dir, progress_callback=on_folder_done)
+            if not success or not os.path.isdir(temp_staging_dir):
+                console.print("[bold red]❌ تعذر استخراج الملفات من الآيفون. يرجى التأكد من إلغاء قفل الشاشة والضغط على 'الوثوق بهذا الكمبيوتر' على شاشة الآيفون.[/bold red]")
+                sys.exit(1)
+        
+        input_dir = temp_staging_dir
+        console.print("[bold green]✅ تم سحب الملفات بنجاح! جاري البدء في الضغط فائق السرعة والميتاداتا...[/bold green]\n")
+
+    elif not os.path.isdir(input_dir):
+        console.print(f"[bold red]❌ Error: المجلد المدخل غير موجود أو المسار غير صحيح: {input_dir}[/bold red]")
         sys.exit(1)
 
     # Initialize Logger
@@ -407,6 +447,14 @@ def main():
         "live_photo_pairs": scan_result.live_photo_pairs_count
     }
     reporter.export_reports(final_stats, elapsed_time, scan_meta)
+
+    # Clean up temporary staging if direct iPhone mode was used
+    if temp_staging_dir and os.path.isdir(temp_staging_dir):
+        try:
+            shutil.rmtree(temp_staging_dir)
+            console.print("[dim green]🧹 تم تنظيف مجلد العمل المؤقت بنجاح لتوفير مساحة التخزين.[/dim green]")
+        except Exception as e:
+            logger.debug(f"Could not remove temp staging dir: {e}")
 
     console.print(f"[bold green]✨ اكتملت العملية بنجاح! تم حفظ التقرير والملفات في:[/bold green] {output_dir}\n")
 
