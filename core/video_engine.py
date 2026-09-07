@@ -23,6 +23,7 @@ class VideoStreamInfo:
     colorspace: str
     duration: float
     has_audio: bool
+    bitrate: int = 0
 
 @dataclass
 class VideoProcessResult:
@@ -107,6 +108,8 @@ class VideoEngine:
             if duration <= 0:
                 duration = float(vid_stream.get("duration", 0.0))
 
+            bitrate = int(data.get("format", {}).get("bit_rate", 0) or vid_stream.get("bit_rate", 0) or 0)
+
             return VideoStreamInfo(
                 width=int(vid_stream.get("width", 0)),
                 height=int(vid_stream.get("height", 0)),
@@ -117,7 +120,8 @@ class VideoEngine:
                 color_trc=color_trc,
                 colorspace=colorspace,
                 duration=duration,
-                has_audio=has_audio
+                has_audio=has_audio,
+                bitrate=bitrate
             )
         except Exception as e:
             logger.error(f"Exception probing {file_path}: {e}")
@@ -177,10 +181,24 @@ class VideoEngine:
                     duration_sec=time.time() - start_time
                 )
 
+            # Check if already ultra-low bitrate (e.g. TikTok / web clips under 1.2 Mbps)
+            if info.bitrate > 0 and info.bitrate < 1200000 and orig_size < 20 * 1024 * 1024:
+                logger.info(f"Video {source_path} already highly compressed ({info.bitrate // 1000} kbps). Retaining original.")
+                shutil.copy2(source_path, dest_path)
+                if self.metadata_engine:
+                    self.metadata_engine.copy_metadata(source_path, dest_path, is_video=True)
+                return VideoProcessResult(
+                    status="SKIPPED_LARGER",
+                    original_size=orig_size,
+                    compressed_size=orig_size,
+                    duration_sec=time.time() - start_time
+                )
+
             # Build NVENC FFmpeg command
             cmd = [
                 self.ffmpeg_path,
                 "-hide_banner",
+                "-nostdin",
                 "-y",
                 "-i", source_path,
                 "-c:v", "hevc_nvenc",
@@ -221,25 +239,46 @@ class VideoEngine:
                 tmp_output
             ])
 
-            # Run FFmpeg
-            res = subprocess.run(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                encoding="utf-8",
-                errors="replace"
-            )
+            # Run FFmpeg with dynamic timeout (max 4x video duration or 90s minimum)
+            timeout_sec = max(90, int(info.duration * 4))
+            try:
+                res = subprocess.run(
+                    cmd,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                    timeout=timeout_sec
+                )
+            except subprocess.TimeoutExpired:
+                logger.warning(f"FFmpeg timed out after {timeout_sec}s on {source_path}. Retaining original.")
+                if os.path.isfile(tmp_output):
+                    try: os.remove(tmp_output)
+                    except Exception: pass
+                shutil.copy2(source_path, dest_path)
+                if self.metadata_engine:
+                    self.metadata_engine.copy_metadata(source_path, dest_path, is_video=True)
+                return VideoProcessResult(
+                    status="SKIPPED_LARGER",
+                    original_size=orig_size,
+                    compressed_size=orig_size,
+                    duration_sec=time.time() - start_time
+                )
 
             if res.returncode != 0:
                 err_msg = res.stderr[-500:] if res.stderr else "Unknown FFmpeg error"
-                logger.error(f"FFmpeg encoding failed for {source_path}: {err_msg}")
+                logger.error(f"FFmpeg encoding failed for {source_path}: {err_msg}. Retaining original.")
                 if os.path.isfile(tmp_output):
-                    os.remove(tmp_output)
+                    try: os.remove(tmp_output)
+                    except Exception: pass
+                shutil.copy2(source_path, dest_path)
+                if self.metadata_engine:
+                    self.metadata_engine.copy_metadata(source_path, dest_path, is_video=True)
                 return VideoProcessResult(
-                    status="FAILED",
+                    status="SKIPPED_LARGER",
                     original_size=orig_size,
-                    compressed_size=0,
+                    compressed_size=orig_size,
                     duration_sec=time.time() - start_time,
                     error_message=err_msg
                 )
