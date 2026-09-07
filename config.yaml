@@ -65,6 +65,12 @@ metadata:
   copy_apple_sidecars: true
 
 
+# هيكلية المجلدات للإخراج (Output Structure)
+structure:
+  # وضع جميع الصور والفيديوهات مباشرة في مجلد واحد مدمج بدون مجلدات فرعية (true للدمج، false للحفاظ على بنية DCIM)
+  flatten_into_single_folder: false
+
+
 # إدارة العتاد والتوازي (Hardware & Concurrency)
 hardware:
   # عدد العمليات المتزامنة لضغط الفيديو على كرت الشاشة (RTX 3060 Ti)

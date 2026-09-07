@@ -69,6 +69,9 @@ def load_config(config_path: str = "config.yaml") -> Dict[str, Any]:
             "gpu_video_workers": 2,
             "cpu_photo_workers": 6
         },
+        "structure": {
+            "flatten_into_single_folder": False
+        },
         "safety": {
             "keep_original_if_larger": True,
             "verify_file_integrity": True,
@@ -110,8 +113,21 @@ def process_single_item(
 ) -> Dict[str, Any]:
     """Processes a single media item with isolation and resume checks."""
     rel_path = item.rel_path
-    dest_path = os.path.join(output_dir, rel_path)
-    os.makedirs(os.path.dirname(dest_path), exist_ok=True)
+    flatten = config.get("structure", {}).get("flatten_into_single_folder", False)
+
+    if flatten:
+        dest_filename = item.filename
+        dest_path = os.path.join(output_dir, dest_filename)
+        if os.path.exists(dest_path) and not (config["safety"]["enable_resume_db"] and db.is_already_processed(rel_path, item.file_size, item.mtime)):
+            base_n, ext_n = os.path.splitext(item.filename)
+            counter = 1
+            while os.path.exists(dest_path):
+                dest_filename = f"{base_n}_{counter}{ext_n}"
+                dest_path = os.path.join(output_dir, dest_filename)
+                counter += 1
+    else:
+        dest_path = os.path.join(output_dir, rel_path)
+        os.makedirs(os.path.dirname(dest_path), exist_ok=True)
 
     # 1. Check if already processed in SQLite
     if config["safety"]["enable_resume_db"]:
@@ -230,6 +246,7 @@ def main():
     parser.add_argument("--photo-quality", type=int, help="Override HEIC compression quality (e.g. 72)")
     parser.add_argument("--workers-gpu", type=int, help="Max concurrent GPU video encoding sessions")
     parser.add_argument("--workers-cpu", type=int, help="Max concurrent CPU photo compression threads")
+    parser.add_argument("--flatten", action="store_true", help="Output all photos and videos directly into a single folder without subdirectories")
     parser.add_argument("--dry-run", action="store_true", help="Scan and display plan without executing compression")
     parser.add_argument("--reset-db", action="store_true", help="Reset SQLite resume database and start fresh")
     args = parser.parse_args()
@@ -328,6 +345,7 @@ def main():
     if args.photo_quality: config["photo"]["heic_quality"] = args.photo_quality
     if args.workers_gpu: config["hardware"]["gpu_video_workers"] = args.workers_gpu
     if args.workers_cpu: config["hardware"]["cpu_photo_workers"] = args.workers_cpu
+    if args.flatten: config["structure"]["flatten_into_single_folder"] = True
 
     # Initialize Engines
     metadata_engine = MetadataEngine(exiftool_path=profile.exiftool_path)
