@@ -159,6 +159,17 @@ class MetadataEngine:
                     "-MediaCreateDate<FileModifyDate",
                 ])
 
+        else:
+            # Check if source photo has internal EXIF date
+            src_summary = self.extract_metadata_summary(abs_source)
+            has_photo_date = bool(src_summary.get("DateTimeOriginal") or src_summary.get("CreateDate"))
+            if not has_photo_date:
+                # Fallback for WhatsApp/Web/Snapchat photos that lack EXIF dates
+                args.extend([
+                    "-DateTimeOriginal<FileModifyDate",
+                    "-CreateDate<FileModifyDate",
+                ])
+
         # Overwrite original target directly without keeping a '_original' backup copy
         args.extend([
             "-overwrite_original",
@@ -174,9 +185,9 @@ class MetadataEngine:
             # Sync OS timestamps to match original shoot date
             if sync_os_timestamps:
                 src_stat = os.stat(abs_source)
-                c_time = getattr(src_stat, "st_birthtime", src_stat.st_ctime)
                 m_time = src_stat.st_mtime
-                set_windows_file_times(abs_dest, c_time, m_time)
+                # Set creation time to match shoot/modification time to prevent Windows/iCloud today-drift
+                set_windows_file_times(abs_dest, m_time, m_time)
 
             return True
 
