@@ -164,11 +164,22 @@ class MetadataEngine:
             src_summary = self.extract_metadata_summary(abs_source)
             has_photo_date = bool(src_summary.get("DateTimeOriginal") or src_summary.get("CreateDate"))
             if not has_photo_date:
-                # Fallback for WhatsApp/Web/Snapchat photos that lack EXIF dates
-                args.extend([
-                    "-DateTimeOriginal<FileModifyDate",
-                    "-CreateDate<FileModifyDate",
-                ])
+                # Check if parent DCIM folder is in YYYY__MM format (e.g. 2022__10)
+                parent_name = os.path.basename(os.path.dirname(abs_source))
+                if "__" in parent_name and len(parent_name) == 8 and parent_name[:4].isdigit() and parent_name[6:8].isdigit():
+                    ey, em = parent_name[:4], parent_name[6:8]
+                    if 2000 <= int(ey) <= 2030 and 1 <= int(em) <= 12:
+                        fallback_date = f"{ey}:{em}:15 12:00:00"
+                        args.extend([
+                            f"-DateTimeOriginal={fallback_date}",
+                            f"-CreateDate={fallback_date}",
+                        ])
+                if not any(a.startswith("-DateTimeOriginal=") for a in args):
+                    # Generic fallback to original filesystem timestamps
+                    args.extend([
+                        "-DateTimeOriginal<FileModifyDate",
+                        "-CreateDate<FileModifyDate",
+                    ])
 
         # Overwrite original target directly without keeping a '_original' backup copy
         args.extend([
