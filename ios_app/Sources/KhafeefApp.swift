@@ -5,7 +5,7 @@ import SwiftUI
 struct KhafeefApp: App {
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            MainTabView()
         }
     }
 }

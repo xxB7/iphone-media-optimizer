@@ -4,23 +4,21 @@ import UniformTypeIdentifiers
 import CoreGraphics
 
 /// High-performance native image compression using Apple ImageIO.
-/// Preserves 100% of EXIF, TIFF, and GPS metadata.
-public class ImageCompressor {
+/// Preserves 100% of EXIF, TIFF, Color Profiles, and GPS metadata.
+public class ImageOptimizer {
     
     public init() {}
     
-    /// Compresses an image data buffer to HEIC or JPEG with custom compression quality.
-    /// Retains all EXIF, GPS, and camera metadata dictionaries.
+    /// Compresses image data to HEIC (or JPEG fallback) while preserving full metadata.
     public func compressImageData(
         _ sourceData: Data,
-        targetFormat: UTType = .heic,
-        quality: Float = 0.75
+        quality: Float = 0.75,
+        targetFormat: UTType = .heic
     ) -> Data? {
         guard let imageSource = CGImageSourceCreateWithData(sourceData as CFData, nil) else {
             return nil
         }
         
-        // Extract existing metadata dictionary
         let options: [CFString: Any] = [kCGImageSourceShouldCache: false]
         guard let imageProperties = CGImageSourceCopyPropertiesAtIndex(imageSource, 0, options as CFDictionary) as? [CFString: Any] else {
             return nil
@@ -33,10 +31,13 @@ public class ImageCompressor {
             1,
             nil
         ) else {
+            // Fallback to JPEG if HEIC destination cannot be created
+            if targetFormat == .heic {
+                return compressImageData(sourceData, quality: quality, targetFormat: .jpeg)
+            }
             return nil
         }
         
-        // Prepare destination options: merge original metadata with compression quality
         var destinationProperties = imageProperties
         destinationProperties[kCGImageDestinationLossyCompressionQuality] = quality
         
