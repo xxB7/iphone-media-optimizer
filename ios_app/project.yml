@@ -3,6 +3,7 @@ options:
   bundleIdPrefix: com.xxb7
   deploymentTarget:
     iOS: "16.0"
+  xcodeVersion: "16.0"
 
 settings:
   base:
