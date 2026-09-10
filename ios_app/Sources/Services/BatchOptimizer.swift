@@ -110,7 +110,6 @@ public class BatchOptimizer: ObservableObject {
                         self.processSingleAsset(asset: asset, config: config) { result in
                             switch result {
                             case .success(let savedBytes):
-                                self.totalSavedBytes += savedBytes
                                 session.totalSavedBytes += savedBytes
                                 if asset.mediaSubtypes.contains(.photoLive) {
                                     session.livePhotosOptimized += 1
@@ -130,11 +129,10 @@ public class BatchOptimizer: ObservableObject {
                         _ = semaphore.wait(timeout: .now() + 120.0) // 2 min max per asset
                     }
                     
-                    self.processedCount += 1
-                    session.totalProcessed = self.processedCount
+                    session.totalProcessed += 1
                     
-                    // Update UI telemetry
-                    self.updateTelemetry()
+                    // Update UI telemetry on main thread
+                    self.updateTelemetry(savedBytes: session.totalSavedBytes, count: session.totalProcessed)
                 }
                 
                 // If direct replace mode, trigger batch delete for completed chunk
@@ -377,18 +375,20 @@ public class BatchOptimizer: ObservableObject {
         }
     }
     
-    private func updateTelemetry() {
+    private func updateTelemetry(savedBytes: Int64, count: Int) {
         DispatchQueue.main.async { [weak self] in
             guard let self = self, let start = self.startTime, self.totalCount > 0 else { return }
             
-            self.progress = Double(self.processedCount) / Double(self.totalCount)
+            self.totalSavedBytes = savedBytes
+            self.processedCount = count
+            self.progress = Double(count) / Double(self.totalCount)
             
             let elapsed = Date().timeIntervalSince(start)
-            if elapsed > 1.0 && self.processedCount > 0 {
-                let speedPerSec = Double(self.processedCount) / elapsed
+            if elapsed > 1.0 && count > 0 {
+                let speedPerSec = Double(count) / elapsed
                 self.itemsPerMinute = speedPerSec * 60.0
                 
-                let remainingItems = self.totalCount - self.processedCount
+                let remainingItems = self.totalCount - count
                 self.estimatedRemainingSeconds = Double(remainingItems) / speedPerSec
             }
         }
