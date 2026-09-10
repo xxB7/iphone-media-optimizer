@@ -60,14 +60,19 @@ public class BatchOptimizer: ObservableObject {
         guard state == .idle || state == .completed || state == .cancelled else { return }
         guard !assets.isEmpty else { return }
         
-        self.state = .running
-        self.isCancelled = false
-        self.isPausedInternal = false
-        self.processedCount = 0
-        self.totalCount = assets.count
-        self.totalSavedBytes = 0
-        self.progress = 0.0
-        self.startTime = Date()
+        // All @Published mutations MUST happen on main thread
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            self.state = .running
+            self.isCancelled = false
+            self.isPausedInternal = false
+            self.processedCount = 0
+            self.totalCount = assets.count
+            self.totalSavedBytes = 0
+            self.progress = 0.0
+            self.startTime = Date()
+            self.errorMessage = nil
+        }
         
         beginBackgroundTask()
         
@@ -155,21 +160,28 @@ public class BatchOptimizer: ObservableObject {
     }
     
     public func pause() {
-        guard state == .running else { return }
-        isPausedInternal = true
-        state = .paused
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self, self.state == .running else { return }
+            self.isPausedInternal = true
+            self.state = .paused
+        }
     }
     
     public func resume() {
-        guard state == .paused else { return }
-        isPausedInternal = false
-        state = .running
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self, self.state == .paused else { return }
+            self.isPausedInternal = false
+            self.state = .running
+        }
     }
     
     public func cancel() {
-        isCancelled = true
-        isPausedInternal = false
-        state = .cancelled
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            self.isCancelled = true
+            self.isPausedInternal = false
+            self.state = .cancelled
+        }
     }
     
     private func processSingleAsset(
