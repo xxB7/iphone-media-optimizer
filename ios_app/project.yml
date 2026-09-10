@@ -1,0 +1,36 @@
+name: Khafeef
+options:
+  bundleIdPrefix: com.xxb7
+  deploymentTarget:
+    iOS: "16.0"
+
+settings:
+  base:
+    SWIFT_VERSION: "5.9"
+    IPHONEOS_DEPLOYMENT_TARGET: "16.0"
+    TARGETED_DEVICE_FAMILY: "1"
+
+targets:
+  Khafeef:
+    type: application
+    platform: iOS
+    sources:
+      - path: Sources
+    settings:
+      base:
+        PRODUCT_NAME: "Khafeef"
+        PRODUCT_BUNDLE_IDENTIFIER: "com.xxb7.khafeef"
+        INFOPLIST_KEY_CFBundleDisplayName: "خفيف"
+        INFOPLIST_KEY_NSPhotoLibraryUsageDescription: "يحتاج التطبيق للوصول لمكتبة الصور لفحص ومقارنة وضغط الوسائط بأمان لتوفير مساحة الآيفون والآيكلاود."
+        INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription: "يحتاج التطبيق لحفظ النسخ المضغوطة ذات الجودة العالية في الاستديو."
+        MARKETING_VERSION: "1.0.0"
+        CURRENT_PROJECT_VERSION: "1"
+        CODE_SIGNING_ALLOWED: NO
+        CODE_SIGNING_REQUIRED: NO
+        CODE_SIGN_IDENTITY: ""
+    dependencies:
+      - sdk: Photos.framework
+      - sdk: AVFoundation.framework
+      - sdk: CoreImage.framework
+      - sdk: ImageIO.framework
+      - sdk: UniformTypeIdentifiers.framework

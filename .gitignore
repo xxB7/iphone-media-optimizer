@@ -62,7 +62,7 @@ ehthumbs_vista.db
 [Dd]esktop.ini
 .DS_Store
 
-# Native iOS App Prototype (Local Only)
-ios_app/
+# Temporary files
 temp_*.txt
+
 
