@@ -16,6 +16,43 @@ public struct DashboardView: View {
             ScrollView {
                 VStack(spacing: 20) {
                     
+                    // Permission Denied Warning Card
+                    if viewModel.isPermissionDenied {
+                        VStack(alignment: .leading, spacing: 10) {
+                            HStack {
+                                Image(systemName: "exclamationmark.triangle.fill")
+                                    .font(.title3)
+                                    .foregroundColor(.orange)
+                                Text("إذن الوصول للصور معطّل")
+                                    .font(.headline)
+                                    .foregroundColor(.primary)
+                                Spacer()
+                            }
+                            Text("يحتاج تطبيق خفيف إلى إذن قراءة وتعديل الصور ليتمكن من حساب المساحة وضغط الاستديو بأمان.")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                            
+                            Button(action: {
+                                viewModel.openSettings()
+                            }) {
+                                HStack {
+                                    Image(systemName: "gear")
+                                    Text("فتح إعدادات الآيفون لمنح الإذن")
+                                        .bold()
+                                }
+                                .font(.caption)
+                                .foregroundColor(.white)
+                                .frame(maxWidth: .infinity)
+                                .padding(10)
+                                .background(Color.orange)
+                                .cornerRadius(10)
+                            }
+                        }
+                        .padding(16)
+                        .background(Color.orange.opacity(0.12))
+                        .cornerRadius(16)
+                    }
+                    
                     // Hero Savings Card
                     VStack(spacing: 16) {
                         HStack {
@@ -100,22 +137,28 @@ public struct DashboardView: View {
                     Button(action: {
                         if viewModel.hasPermission {
                             selectedTab = 1 // Switch to Optimizer tab
+                        } else if viewModel.isPermissionDenied {
+                            viewModel.openSettings()
                         } else {
-                            viewModel.requestAccess { _ in }
+                            viewModel.requestAccess { granted in
+                                if granted {
+                                    selectedTab = 1
+                                }
+                            }
                         }
                     }) {
                         HStack(spacing: 10) {
                             Image(systemName: "bolt.fill")
-                            Text(viewModel.hasPermission ? "بدء التخفيف الذكي الآن" : "منح إذن الوصول للصور")
+                            Text(viewModel.hasPermission ? "بدء التخفيف الذكي الآن" : (viewModel.isPermissionDenied ? "فتح الإعدادات لمنح الإذن" : "منح إذن الوصول للصور"))
                                 .fontWeight(.bold)
                         }
                         .font(.headline)
                         .foregroundColor(.white)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 16)
-                        .background(Color.blue)
+                        .background(viewModel.isPermissionDenied ? Color.orange : Color.blue)
                         .cornerRadius(16)
-                        .shadow(color: Color.blue.opacity(0.25), radius: 8, x: 0, y: 4)
+                        .shadow(color: (viewModel.isPermissionDenied ? Color.orange : Color.blue).opacity(0.25), radius: 8, x: 0, y: 4)
                     }
                     .padding(.top, 6)
                 }
@@ -132,6 +175,9 @@ public struct DashboardView: View {
                             .font(.subheadline.bold())
                     }
                 }
+            }
+            .onAppear {
+                viewModel.checkAndRequestPermission()
             }
         }
     }

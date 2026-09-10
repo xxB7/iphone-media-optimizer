@@ -39,6 +39,15 @@ public class OptimizerViewModel: ObservableObject {
     }
     
     public func start(config: CompressionConfig) {
+        if photoService.authorizationStatus != .authorized && photoService.authorizationStatus != .limited {
+            photoService.requestPermission { [weak self] granted in
+                if granted {
+                    self?.start(config: config)
+                }
+            }
+            return
+        }
+        
         let fetchOptions = PHFetchOptions()
         fetchOptions.includeAssetSourceTypes = [.typeUserLibrary, .typeCloudShared, .typeiTunesSynced]
         
