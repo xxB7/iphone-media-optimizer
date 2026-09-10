@@ -73,15 +73,13 @@ public struct DashboardView: View {
                         Divider().background(Color.white.opacity(0.2))
                         
                         HStack {
-                            Label("حجم الاستديو الحالي: \(viewModel.formattedEstimatedStorage)", systemImage: "internaldrive")
-                                .font(.caption)
-                                .foregroundColor(.white.opacity(0.9))
+                            Label("الاستديو: ~\(viewModel.formattedEstimatedStorage)", systemImage: "photo.stack")
+                                .font(.caption.bold())
+                                .foregroundColor(.white.opacity(0.95))
                             Spacer()
-                            if viewModel.auditStore.lifetimeSavedBytes > 0 {
-                                Label("وفّرت مسبقاً: \(viewModel.auditStore.formattedLifetimeSavedSpace)", systemImage: "checkmark.seal.fill")
-                                    .font(.caption.bold())
-                                    .foregroundColor(.white)
-                            }
+                            Label("سعة الآيفون: \(viewModel.formattedDeviceStorage)", systemImage: "iphone")
+                                .font(.caption)
+                                .foregroundColor(.white.opacity(0.85))
                         }
                     }
                     .padding(22)

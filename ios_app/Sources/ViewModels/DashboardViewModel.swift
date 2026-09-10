@@ -11,6 +11,8 @@ public class DashboardViewModel: ObservableObject {
     @Published public var totalLivePhotos: Int = 0
     @Published public var formattedEstimatedStorage: String = "0 GB"
     @Published public var formattedPotentialSavings: String = "0 GB"
+    @Published public var formattedDeviceStorage: String = "256 GB"
+    @Published public var formattedUsedStorage: String = "0 GB"
     @Published public var isScanning: Bool = false
     @Published public var hasPermission: Bool = false
     @Published public var isPermissionDenied: Bool = false
@@ -68,9 +70,11 @@ public class DashboardViewModel: ObservableObject {
             formatter.allowedUnits = [.useGB, .useMB]
             formatter.countStyle = .file
             self.formattedEstimatedStorage = formatter.string(fromByteCount: self.photoService.estimatedTotalBytes)
+            self.formattedDeviceStorage = formatter.string(fromByteCount: self.photoService.deviceTotalBytes)
+            self.formattedUsedStorage = formatter.string(fromByteCount: self.photoService.deviceUsedBytes)
             
-            // Expected average saving is ~65% of total library footprint
-            let potentialBytes = Int64(Double(self.photoService.estimatedTotalBytes) * 0.65)
+            // Expected realistic average saving is ~60% of estimated library footprint
+            let potentialBytes = Int64(Double(self.photoService.estimatedTotalBytes) * 0.60)
             self.formattedPotentialSavings = formatter.string(fromByteCount: potentialBytes)
             
             self.isScanning = false

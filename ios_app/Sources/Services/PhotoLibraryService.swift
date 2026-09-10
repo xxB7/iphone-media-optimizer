@@ -31,7 +31,10 @@ public class PhotoLibraryService: ObservableObject {
         }
     }
     
-    /// Scans the entire library, categorizes media, and discovers user albums.
+    @Published public var deviceTotalBytes: Int64 = 0
+    @Published public var deviceUsedBytes: Int64 = 0
+    
+    /// Scans the entire library, categorizes media, and measures realistic storage using resource sampling and disk capacity.
     public func scanLibrary(completion: @escaping () -> Void) {
         guard authorizationStatus == .authorized || authorizationStatus == .limited else {
             completion()
@@ -41,7 +44,14 @@ public class PhotoLibraryService: ObservableObject {
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self = self else { return }
             
-            // 1. Scan all assets
+            // Query actual device physical storage capacity
+            let homeURL = URL(fileURLWithPath: NSHomeDirectory())
+            let diskValues = try? homeURL.resourceValues(forKeys: [.volumeTotalCapacityKey, .volumeAvailableCapacityForImportantUsageKey])
+            let totalDisk = Int64(diskValues?.volumeTotalCapacity ?? (256 * 1024 * 1024 * 1024))
+            let freeDisk = diskValues?.volumeAvailableCapacityForImportantUsage ?? 0
+            let usedDisk = max(0, totalDisk - freeDisk)
+            
+            // 1. Scan all assets with sampling
             let fetchOptions = PHFetchOptions()
             fetchOptions.includeAssetSourceTypes = [.typeUserLibrary, .typeCloudShared, .typeiTunesSynced]
             let allAssets = PHAsset.fetchAssets(with: fetchOptions)
@@ -49,21 +59,57 @@ public class PhotoLibraryService: ObservableObject {
             var photos = 0
             var videos = 0
             var livePhotos = 0
-            var estimatedBytes: Int64 = 0
+            
+            var sampledPhotoBytes: Int64 = 0
+            var sampledPhotoCount = 0
+            var sampledVideoBytes: Int64 = 0
+            var sampledVideoCount = 0
+            var sampledLiveBytes: Int64 = 0
+            var sampledLiveCount = 0
             
             allAssets.enumerateObjects { asset, _, _ in
                 if asset.mediaSubtypes.contains(.photoLive) {
                     livePhotos += 1
-                    estimatedBytes += 12 * 1024 * 1024 // ~12MB estimated per Live Photo
+                    if sampledLiveCount < 20 {
+                        let res = PHAssetResource.assetResources(for: asset)
+                        let size = res.compactMap { $0.value(forKey: "fileSize") as? Int64 }.reduce(0, +)
+                        if size > 0 {
+                            sampledLiveBytes += size
+                            sampledLiveCount += 1
+                        }
+                    }
                 } else if asset.mediaType == .image {
                     photos += 1
-                    estimatedBytes += 3 * 1024 * 1024  // ~3MB estimated per Photo
+                    if sampledPhotoCount < 25 {
+                        let res = PHAssetResource.assetResources(for: asset)
+                        if let size = res.first?.value(forKey: "fileSize") as? Int64, size > 0 {
+                            sampledPhotoBytes += size
+                            sampledPhotoCount += 1
+                        }
+                    }
                 } else if asset.mediaType == .video {
                     videos += 1
-                    let durationSec = asset.duration
-                    let estimatedVideoMB = max(5.0, durationSec * 2.5) // ~2.5 MB/s
-                    estimatedBytes += Int64(estimatedVideoMB * 1024 * 1024)
+                    if sampledVideoCount < 20 {
+                        let res = PHAssetResource.assetResources(for: asset)
+                        if let size = res.first?.value(forKey: "fileSize") as? Int64, size > 0 {
+                            sampledVideoBytes += size
+                            sampledVideoCount += 1
+                        }
+                    }
                 }
+            }
+            
+            // Compute realistic average byte sizes from this specific user's media
+            let avgPhoto = sampledPhotoCount > 0 ? (sampledPhotoBytes / Int64(sampledPhotoCount)) : (1_100_000) // ~1.1MB
+            let avgLive = sampledLiveCount > 0 ? (sampledLiveBytes / Int64(sampledLiveCount)) : (3_200_000) // ~3.2MB
+            let avgVideo = sampledVideoCount > 0 ? (sampledVideoBytes / Int64(sampledVideoCount)) : (10_000_000) // ~10MB
+            
+            var estimatedBytes = (Int64(photos) * avgPhoto) + (Int64(livePhotos) * avgLive) + (Int64(videos) * avgVideo)
+            
+            // Clamp to physical reality: Library on device cannot exceed actual used disk space
+            if usedDisk > 0 && estimatedBytes > usedDisk {
+                // If it exceeds total used storage, bound it to realistic photo library portion (max 75% of used storage)
+                estimatedBytes = Int64(Double(usedDisk) * 0.70)
             }
             
             // 2. Discover user albums
@@ -88,6 +134,8 @@ public class PhotoLibraryService: ObservableObject {
                 self.totalVideoCount = videos
                 self.totalLivePhotoCount = livePhotos
                 self.estimatedTotalBytes = estimatedBytes
+                self.deviceTotalBytes = totalDisk
+                self.deviceUsedBytes = usedDisk
                 self.availableAlbums = discoveredAlbums
                 completion()
             }
