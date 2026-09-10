@@ -99,14 +99,20 @@ class DirectoryScanner:
         # Detect Live Photo pairs and assemble result lists
         for rel_folder, stems in folder_stems.items():
             for stem, group in stems.items():
-                has_image = any(it.category == "image" for it in group)
-                has_video = any(it.category == "video" for it in group)
+                images = [it for it in group if it.category == "image"]
+                videos = [it for it in group if it.category == "video"]
 
-                is_live = has_image and has_video
+                # A true Apple Live Photo MUST have an image and a .MOV video (never .mp4)
+                # Live Photo MOV micro-clips are 1.5 - 3.0s and virtually never exceed 20MB
+                is_live = False
+                if len(images) == 1 and len(videos) == 1:
+                    vid_item = videos[0]
+                    img_item = images[0]
+                    if vid_item.extension == ".mov" and vid_item.file_size <= 25 * 1024 * 1024:
+                        is_live = True
+
                 if is_live:
                     result.live_photo_pairs_count += 1
-                    img_item = next(it for it in group if it.category == "image")
-                    vid_item = next(it for it in group if it.category == "video")
                     img_item.is_live_photo = True
                     img_item.companion_path = vid_item.full_path
                     vid_item.is_live_photo = True

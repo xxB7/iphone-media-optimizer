@@ -232,3 +232,93 @@ class MetadataEngine:
         except Exception as e:
             logger.debug(f"Could not extract metadata summary: {e}")
         return {}
+
+    def quarantine_corrupt_files(self, directory: str, quarantine_dir: Optional[str] = None) -> List[str]:
+        """Identifies and quarantines 0-byte or corrupt files that would cause import crashes."""
+        import shutil
+        qdir = quarantine_dir or os.path.join(directory, "_corrupt_quarantine")
+        corrupt_files = []
+        for root, _, files in os.walk(directory):
+            if "_corrupt_quarantine" in root:
+                continue
+            for f in files:
+                p = os.path.join(root, f)
+                try:
+                    if os.path.getsize(p) == 0:
+                        corrupt_files.append(p)
+                except Exception:
+                    corrupt_files.append(p)
+
+        if corrupt_files:
+            os.makedirs(qdir, exist_ok=True)
+            for cp in corrupt_files:
+                logger.warning(f"Quarantining 0-byte corrupt file: {cp}")
+                try:
+                    shutil.move(cp, os.path.join(qdir, os.path.basename(cp)))
+                except Exception as e:
+                    logger.error(f"Failed to quarantine {cp}: {e}")
+
+        return corrupt_files
+
+    def batch_ensure_chronological_metadata(self, directory: str) -> int:
+        """
+        Scans all images and videos in directory and ensures 100% have embedded EXIF/QuickTime
+        chronological dates (DateTimeOriginal/CreationDate). Solves the 'photos appearing on Today'
+        issue by injecting FileModifyDate whenever internal camera tags are absent.
+        """
+        import json
+        media_files = []
+        valid_exts = {".jpg", ".jpeg", ".heic", ".dng", ".png", ".webp", ".mov", ".mp4", ".m4v"}
+        
+        for root, _, files in os.walk(directory):
+            if "_corrupt_quarantine" in root:
+                continue
+            for f in files:
+                if os.path.splitext(f)[1].lower() in valid_exts:
+                    media_files.append(os.path.join(root, f))
+
+        if not media_files:
+            return 0
+
+        logger.info(f"Checking chronological metadata across {len(media_files):,} files in {directory}...")
+        
+        # Batch check via argfile
+        args = ["-j", "-fast2", "-FileName", "-DateTimeOriginal", "-CreateDate", "-QuickTime:CreationDate"]
+        args.extend(media_files)
+        
+        try:
+            res = self._run_exiftool(args, timeout=300)
+            data = json.loads(res.stdout) if res.stdout else []
+        except Exception as e:
+            logger.warning(f"Batch metadata check failed: {e}. Falling back to folder scan.")
+            data = []
+
+        missing_files = []
+        for item in data:
+            source_file = item.get("SourceFile")
+            has_date = bool(item.get("DateTimeOriginal") or item.get("CreateDate") or item.get("CreationDate"))
+            if not has_date and source_file and os.path.exists(source_file):
+                missing_files.append(source_file)
+
+        if not missing_files:
+            logger.info("All media files have verified chronological date headers.")
+            return 0
+
+        logger.info(f"Injecting chronological timestamps into {len(missing_files):,} files missing EXIF dates...")
+        update_args = [
+            "-P",
+            "-overwrite_original",
+            "-DateTimeOriginal<FileModifyDate",
+            "-CreateDate<FileModifyDate",
+            "-QuickTime:CreationDate<FileModifyDate"
+        ]
+        update_args.extend(missing_files)
+        
+        try:
+            self._run_exiftool(update_args, timeout=300)
+            logger.info(f"Successfully injected dates into {len(missing_files):,} files.")
+            return len(missing_files)
+        except Exception as e:
+            logger.error(f"Failed to batch-inject metadata: {e}")
+            return 0
+

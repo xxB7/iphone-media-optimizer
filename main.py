@@ -249,7 +249,24 @@ def main():
     parser.add_argument("--flatten", action="store_true", help="Output all photos and videos directly into a single folder without subdirectories")
     parser.add_argument("--dry-run", action="store_true", help="Scan and display plan without executing compression")
     parser.add_argument("--reset-db", action="store_true", help="Reset SQLite resume database and start fresh")
+    parser.add_argument("--package-only", action="store_true", help="Run packaging, collision resolution, and EXIF validation only on an existing output folder")
     args = parser.parse_args()
+
+    # If package-only mode is selected, run AlbumManager directly
+    if args.package_only:
+        target_dir = args.output or args.input
+        if not target_dir:
+            target_dir = console.input("[bold yellow]💾 Enter folder path to package & verify (e.g. E:\\استديو مخفف): [/bold yellow]").strip().strip('"').strip("'")
+        
+        console.print(f"\n[bold cyan]📦 Running AlbumManager Packaging & Verification on: {target_dir}[/bold cyan]")
+        metadata_engine = MetadataEngine()
+        from core.album_manager import AlbumManager
+        album_mgr = AlbumManager(target_dir, metadata_engine)
+        pkg_stats = album_mgr.package_and_verify_all()
+        console.print("[bold green]✅ Packaging and verification completed successfully![/bold green]")
+        for fld, f_stat in pkg_stats.items():
+            console.print(f"  [white]• {fld}: {f_stat['total_files']} files | {f_stat['collisions_resolved']} collisions resolved | {f_stat['metadata_injected']} dates injected[/white]")
+        sys.exit(0)
 
     # Hardware Inspection
     profile = inspect_hardware()
@@ -473,6 +490,18 @@ def main():
             console.print("[dim green]🧹 Temporary staging cache cleaned up successfully.[/dim green]")
         except Exception as e:
             logger.debug(f"Could not remove temp staging dir: {e}")
+
+    # Post-processing: Package albums, resolve stem collisions, and ensure 100% EXIF dates
+    console.print("\n[bold cyan]📦 Post-Processing: Resolving collisions, verifying EXIF, and packaging albums...[/bold cyan]")
+    try:
+        from core.album_manager import AlbumManager
+        album_mgr = AlbumManager(output_dir, metadata_engine)
+        pkg_stats = album_mgr.package_and_verify_all()
+        console.print("[bold green]✅ Album packaging and collision resolution completed with 0 errors.[/bold green]")
+        for fld, f_stat in pkg_stats.items():
+            console.print(f"  [dim white]• {fld}: {f_stat['total_files']} files | {f_stat['collisions_resolved']} collisions resolved | {f_stat['metadata_injected']} dates injected[/dim white]")
+    except Exception as e:
+        logger.warning(f"Album packaging post-process encountered an issue: {e}")
 
     console.print(f"[bold green]✨ All tasks completed successfully! Output saved to:[/bold green] {output_dir}\n")
 

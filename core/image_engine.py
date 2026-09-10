@@ -30,17 +30,23 @@ class ImageEngine:
         heic_quality: int = 72,
         jpeg_quality: int = 78,
         max_dimension: int = 0,
-        keep_if_larger: bool = True
+        keep_if_larger: bool = True,
+        convert_png_to_jpg: bool = True,
+        convert_nonstandard_to_jpg: bool = True
     ):
         self.metadata_engine = metadata_engine
         self.heic_quality = heic_quality
         self.jpeg_quality = jpeg_quality
         self.max_dimension = max_dimension
         self.keep_if_larger = keep_if_larger
+        self.convert_png_to_jpg = convert_png_to_jpg
+        self.convert_nonstandard_to_jpg = convert_nonstandard_to_jpg
 
     def verify_image(self, file_path: str) -> bool:
         """Verifies that the image can be opened and decoded without corruption."""
         try:
+            if not os.path.isfile(file_path) or os.path.getsize(file_path) == 0:
+                return False
             with Image.open(file_path) as img:
                 img.verify()
             return True
@@ -54,15 +60,36 @@ class ImageEngine:
     ) -> ImageProcessResult:
         """
         Compresses an image, preserves orientation, injects metadata, and validates output.
+        Automatically normalizes PNG and WebP to standard JPEG to prevent iOS import issues.
         """
         start_time = time.time()
+        if not os.path.isfile(source_path) or os.path.getsize(source_path) == 0:
+            return ImageProcessResult(
+                status="FAILED",
+                original_size=0,
+                compressed_size=0,
+                duration_sec=0,
+                error_message="File does not exist or is 0 bytes (corrupted)"
+            )
+
         orig_size = os.path.getsize(source_path)
         ext = os.path.splitext(source_path)[1].lower()
+
+        # Check if output should be standardized to .jpg
+        standardize_to_jpg = (
+            (ext == ".png" and self.convert_png_to_jpg) or
+            (ext in (".webp", ".psd", ".bmp", ".tif", ".tiff") and self.convert_nonstandard_to_jpg)
+        )
+        if standardize_to_jpg:
+            dest_path = os.path.splitext(dest_path)[0] + ".jpg"
+            out_ext = ".jpg"
+        else:
+            out_ext = ext
 
         dest_dir = os.path.dirname(os.path.abspath(dest_path))
         if dest_dir:
             os.makedirs(dest_dir, exist_ok=True)
-        tmp_output = dest_path + ".tmp" + ext
+        tmp_output = dest_path + ".tmp" + out_ext
 
         try:
             with Image.open(source_path) as img:
@@ -80,18 +107,24 @@ class ImageEngine:
                         new_size = (int(w * ratio), int(h * ratio))
                         img = img.resize(new_size, Image.Resampling.LANCZOS)
 
-                # Compression by format
-                if ext in (".heic", ".heif"):
+                # Compression and normalization by format
+                if out_ext in (".heic", ".heif"):
                     img.save(
                         tmp_output,
                         format="HEIF",
                         quality=self.heic_quality,
                         chroma=420
                     )
-                elif ext in (".jpg", ".jpeg"):
-                    # Convert RGBA to RGB for JPEG
-                    if img.mode in ("RGBA", "P"):
+                elif out_ext in (".jpg", ".jpeg") or standardize_to_jpg:
+                    # Convert transparent PNG/WebP to RGB with clean white background
+                    if img.mode in ("RGBA", "LA") or (img.mode == "P" and "transparency" in img.info):
+                        bg = Image.new("RGB", img.size, (255, 255, 255))
+                        alpha = img.convert("RGBA").split()[3]
+                        bg.paste(img.convert("RGBA"), mask=alpha)
+                        img = bg
+                    elif img.mode != "RGB":
                         img = img.convert("RGB")
+
                     img.save(
                         tmp_output,
                         format="JPEG",
@@ -99,22 +132,14 @@ class ImageEngine:
                         optimize=True,
                         progressive=True
                     )
-                elif ext == ".png":
+                elif out_ext == ".png":
                     img.save(
                         tmp_output,
                         format="PNG",
                         optimize=True,
                         compress_level=9
                     )
-                elif ext == ".webp":
-                    img.save(
-                        tmp_output,
-                        format="WEBP",
-                        quality=self.jpeg_quality,
-                        method=6
-                    )
                 else:
-                    # Generic fallback (e.g. TIFF)
                     img.save(tmp_output, optimize=True)
 
             # Validate integrity of generated file
