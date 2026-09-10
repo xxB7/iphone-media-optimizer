@@ -17,13 +17,13 @@ targets:
     platform: iOS
     sources:
       - path: Sources
+    info:
+      path: Info.plist
     settings:
       base:
         PRODUCT_NAME: "Khafeef"
         PRODUCT_BUNDLE_IDENTIFIER: "com.xxb7.khafeef"
-        INFOPLIST_KEY_CFBundleDisplayName: "خفيف"
-        INFOPLIST_KEY_NSPhotoLibraryUsageDescription: "يحتاج التطبيق للوصول لمكتبة الصور لفحص ومقارنة وضغط الوسائط بأمان لتوفير مساحة الآيفون والآيكلاود."
-        INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription: "يحتاج التطبيق لحفظ النسخ المضغوطة ذات الجودة العالية في الاستديو."
+        GENERATE_INFOPLIST: NO
         MARKETING_VERSION: "1.0.0"
         CURRENT_PROJECT_VERSION: "1"
         CODE_SIGNING_ALLOWED: NO
