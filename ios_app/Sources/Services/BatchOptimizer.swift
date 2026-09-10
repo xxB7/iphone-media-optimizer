@@ -34,8 +34,19 @@ public class BatchOptimizer: ObservableObject {
     private let albumPreserver: AlbumPreserver
     private let thermalGuard: ThermalGuard
     
-    private var isCancelled: Bool = false
-    private var isPausedInternal: Bool = false
+    // Serial queue protects isCancelled and isPausedInternal from data races
+    // (written on main thread, read on background thread).
+    private let flagQueue = DispatchQueue(label: "com.xxb7.khafeef.flagQueue")
+    private var _isCancelled: Bool = false
+    private var _isPausedInternal: Bool = false
+    private var isCancelled: Bool {
+        get { flagQueue.sync { _isCancelled } }
+        set { flagQueue.sync { _isCancelled = newValue } }
+    }
+    private var isPausedInternal: Bool {
+        get { flagQueue.sync { _isPausedInternal } }
+        set { flagQueue.sync { _isPausedInternal = newValue } }
+    }
     private var backgroundTaskId: UIBackgroundTaskIdentifier = .invalid
     private var startTime: Date?
     
@@ -60,24 +71,27 @@ public class BatchOptimizer: ObservableObject {
         guard state == .idle || state == .completed || state == .cancelled else { return }
         guard !assets.isEmpty else { return }
         
-        // All @Published mutations MUST happen on main thread
+        // Reset flags and @Published state synchronously on main thread,
+        // then launch the background loop from inside that block to guarantee
+        // isCancelled/isPausedInternal are already false before any read.
         DispatchQueue.main.async { [weak self] in
             guard let self = self else { return }
-            self.state = .running
+            // Reset control flags first (via flagQueue internally)
             self.isCancelled = false
             self.isPausedInternal = false
+            // Reset @Published UI state
+            self.state = .running
             self.processedCount = 0
             self.totalCount = assets.count
             self.totalSavedBytes = 0
             self.progress = 0.0
             self.startTime = Date()
             self.errorMessage = nil
-        }
-        
-        beginBackgroundTask()
-        
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            guard let self = self else { return }
+            // Begin background task token
+            self.beginBackgroundTask()
+            // Launch processing — flags are guaranteed reset before this block runs
+            DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+                guard let self = self else { return }
             
             var session = OptimizationSession()
             var originalsToCleanup: [PHAsset] = []
@@ -155,6 +169,7 @@ public class BatchOptimizer: ObservableObject {
                 self.state = self.isCancelled ? .cancelled : .completed
                 self.endBackgroundTask()
                 onSessionComplete(session)
+            }
             }
         }
     }
