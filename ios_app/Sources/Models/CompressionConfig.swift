@@ -16,7 +16,7 @@ public struct CompressionConfig: Codable, Equatable {
             case .hevc1080p:
                 return AVAssetExportPresetHEVC1920x1080
             case .hevc720p:
-                return AVAssetExportPresetHEVC1280x720
+                return AVAssetExportPreset1280x720
             case .hevcHighest:
                 return AVAssetExportPresetHEVCHighestQuality
             }
