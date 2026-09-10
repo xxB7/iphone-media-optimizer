@@ -34,7 +34,8 @@ public class PhotoLibraryService: ObservableObject {
     @Published public var deviceTotalBytes: Int64 = 0
     @Published public var deviceUsedBytes: Int64 = 0
     
-    /// Scans the entire library, categorizes media, and measures realistic storage using resource sampling and disk capacity.
+    /// Scans the entire library, categorizes media, and measures realistic on-device storage.
+    /// Uses physical disk capacity as an absolute ceiling to prevent impossible values.
     public func scanLibrary(completion: @escaping () -> Void) {
         guard authorizationStatus == .authorized || authorizationStatus == .limited else {
             completion()
@@ -44,14 +45,28 @@ public class PhotoLibraryService: ObservableObject {
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self = self else { return }
             
-            // Query actual device physical storage capacity
+            // ─── Step 1: Measure physical device storage ────────────────────────
+            // Use volumeAvailableCapacityKey (NOT ForImportantUsage) — the "important" variant
+            // can return a value LARGER than totalDisk (it includes purgeable future space),
+            // which causes usedDisk = max(0, total - free) = 0, defeating the clamp entirely.
             let homeURL = URL(fileURLWithPath: NSHomeDirectory())
-            let diskValues = try? homeURL.resourceValues(forKeys: [.volumeTotalCapacityKey, .volumeAvailableCapacityForImportantUsageKey])
-            let totalDisk = Int64(diskValues?.volumeTotalCapacity ?? (256 * 1024 * 1024 * 1024))
-            let freeDisk = diskValues?.volumeAvailableCapacityForImportantUsage ?? 0
+            var totalDisk: Int64 = 256 * 1024 * 1024 * 1024 // safe default: 256 GB
+            var freeDisk: Int64 = 0
+            
+            if let vals = try? homeURL.resourceValues(forKeys: [
+                .volumeTotalCapacityKey,
+                .volumeAvailableCapacityKey      // standard free space (no purgeable inflation)
+            ]) {
+                if let total = vals.volumeTotalCapacity, total > 0 {
+                    totalDisk = Int64(total)
+                }
+                if let free = vals.volumeAvailableCapacity, free > 0 {
+                    freeDisk = Int64(free)
+                }
+            }
             let usedDisk = max(0, totalDisk - freeDisk)
             
-            // 1. Scan all assets with sampling
+            // ─── Step 2: Scan and categorize all assets ─────────────────────────
             let fetchOptions = PHFetchOptions()
             fetchOptions.includeAssetSourceTypes = [.typeUserLibrary, .typeCloudShared, .typeiTunesSynced]
             let allAssets = PHAsset.fetchAssets(with: fetchOptions)
@@ -70,49 +85,49 @@ public class PhotoLibraryService: ObservableObject {
             allAssets.enumerateObjects { asset, _, _ in
                 if asset.mediaSubtypes.contains(.photoLive) {
                     livePhotos += 1
-                    if sampledLiveCount < 20 {
+                    if sampledLiveCount < 30 {
                         let res = PHAssetResource.assetResources(for: asset)
                         let size = res.compactMap { $0.value(forKey: "fileSize") as? Int64 }.reduce(0, +)
-                        if size > 0 {
-                            sampledLiveBytes += size
-                            sampledLiveCount += 1
-                        }
+                        if size > 0 { sampledLiveBytes += size; sampledLiveCount += 1 }
                     }
                 } else if asset.mediaType == .image {
                     photos += 1
-                    if sampledPhotoCount < 25 {
+                    if sampledPhotoCount < 40 {
                         let res = PHAssetResource.assetResources(for: asset)
                         if let size = res.first?.value(forKey: "fileSize") as? Int64, size > 0 {
-                            sampledPhotoBytes += size
-                            sampledPhotoCount += 1
+                            sampledPhotoBytes += size; sampledPhotoCount += 1
                         }
                     }
                 } else if asset.mediaType == .video {
                     videos += 1
-                    if sampledVideoCount < 20 {
+                    if sampledVideoCount < 30 {
                         let res = PHAssetResource.assetResources(for: asset)
                         if let size = res.first?.value(forKey: "fileSize") as? Int64, size > 0 {
-                            sampledVideoBytes += size
-                            sampledVideoCount += 1
+                            sampledVideoBytes += size; sampledVideoCount += 1
                         }
                     }
                 }
             }
             
-            // Compute realistic average byte sizes from this specific user's media
-            let avgPhoto = sampledPhotoCount > 0 ? (sampledPhotoBytes / Int64(sampledPhotoCount)) : (1_100_000) // ~1.1MB
-            let avgLive = sampledLiveCount > 0 ? (sampledLiveBytes / Int64(sampledLiveCount)) : (3_200_000) // ~3.2MB
-            let avgVideo = sampledVideoCount > 0 ? (sampledVideoBytes / Int64(sampledVideoCount)) : (10_000_000) // ~10MB
+            // ─── Step 3: Compute per-type averages ──────────────────────────────
+            let avgPhoto = sampledPhotoCount > 0 ? (sampledPhotoBytes / Int64(sampledPhotoCount)) : 1_100_000
+            let avgLive  = sampledLiveCount  > 0 ? (sampledLiveBytes  / Int64(sampledLiveCount))  : 3_200_000
+            let avgVideo = sampledVideoCount > 0 ? (sampledVideoBytes / Int64(sampledVideoCount)) : 10_000_000
             
-            var estimatedBytes = (Int64(photos) * avgPhoto) + (Int64(livePhotos) * avgLive) + (Int64(videos) * avgVideo)
+            var estimatedBytes = (Int64(photos) * avgPhoto) +
+                                 (Int64(livePhotos) * avgLive) +
+                                 (Int64(videos) * avgVideo)
             
-            // Clamp to physical reality: Library on device cannot exceed actual used disk space
+            // ─── Step 4: Apply hard physical ceilings (order matters) ────────────
+            // CEILING 1 — Absolute: cannot exceed total device capacity (physical law)
+            estimatedBytes = min(estimatedBytes, totalDisk)
+            
+            // CEILING 2 — Soft: cap at 80% of actually used storage if available
             if usedDisk > 0 && estimatedBytes > usedDisk {
-                // If it exceeds total used storage, bound it to realistic photo library portion (max 75% of used storage)
-                estimatedBytes = Int64(Double(usedDisk) * 0.70)
+                estimatedBytes = Int64(Double(usedDisk) * 0.80)
             }
             
-            // 2. Discover user albums
+            // ─── Step 5: Discover user albums ────────────────────────────────────
             var discoveredAlbums: [AlbumInfo] = []
             let userAlbums = PHAssetCollection.fetchAssetCollections(with: .album, subtype: .any, options: nil)
             userAlbums.enumerateObjects { collection, _, _ in
